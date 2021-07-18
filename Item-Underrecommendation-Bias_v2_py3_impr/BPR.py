@@ -105,7 +105,7 @@ class BPR:
     def train_model(self, itr):
         NS_start_time = time.time() * 1000.0
         epoch_cost = 0
-        num_sample, user_list, item_pos_list, item_neg_list = utility.negative_sample(self.train_df, self.num_rows,
+        num_sample, user_list, item_pos_list, item_neg_list, _ = utility.negative_sample(self.train_df, self.num_rows,
                                                                                       self.num_cols, self.neg)
         NS_end_time = time.time() * 1000.0
 

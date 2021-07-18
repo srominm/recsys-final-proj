@@ -192,6 +192,7 @@ def negative_sample(train_df, num_user, num_item, neg, item_popularity=None):
     item_pos = []
     item_neg = []
     item_poplarity_corr_lst = []
+    item_poplarity_corr_tensor = None
     item_set = set(range(num_item))
     for i in range(num_user):
         like_item = (train_df.loc[train_df['user_id'] == i, 'item_id']).tolist()
@@ -206,14 +207,16 @@ def negative_sample(train_df, num_user, num_item, neg, item_popularity=None):
             item_pos += [l] * tmp_neg
             item_neg += neg_samples
 
-            for _ in range(len(item_neg)):
-                item_poplarity_corr_lst.append(item_popularity[l] / np.sum(item_popularity))
+            if item_popularity:
+                for _ in range(len(item_neg)):
+                    item_poplarity_corr_lst.append(item_popularity[l] / np.sum(item_popularity))
+                    item_poplarity_corr_tensor = np.array(item_poplarity_corr_lst).reshape((num_sample, 1))
 
     num_sample = len(user)
 
     return num_sample, np.array(user).reshape((num_sample, 1)),\
            np.array(item_pos).reshape((num_sample, 1)), np.array(item_neg).reshape((num_sample, 1)),\
-           np.array(item_poplarity_corr_lst).reshape((num_sample, 1))
+           item_poplarity_corr_tensor
 
 
 def ranking_analysis(Rec, test_df, train_df, key_genre, item_idd_genre_list, user_genre_count):
