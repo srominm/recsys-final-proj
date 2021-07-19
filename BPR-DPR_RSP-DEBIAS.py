@@ -32,6 +32,8 @@ class BPR_DRP_RSP_DEBIAS:
         os.makedirs(self.ckpt_save_path, exist_ok=True)
         
         self.layers = eval(args.layers)
+        
+        self.reg_lambda = args.reg_lambda
 
         self.key_genre = key_genre
         self.item_genre_list = item_genre_list
@@ -42,7 +44,7 @@ class BPR_DRP_RSP_DEBIAS:
 
         self.num_cols = len(train_df['item_id'].unique())
         self.num_rows = len(train_df['user_id'].unique())
-
+        
         self.hidden_neuron = args.hidden_neuron
         self.neg = args.neg
         self.batch_size = args.batch_size
@@ -173,14 +175,16 @@ class BPR_DRP_RSP_DEBIAS:
         self.adv_output = tf.nn.sigmoid(tf.matmul(adv_last, adv_W_out) + adv_b_out)
         self.a_cost = tf.reduce_sum(input_tensor=tf.square(self.adv_output - self.input_item_genre) * self.input_item_error_weight)
         
-        self.r_pop_corr_cost = get_correlation_loss((predict_pos - predict_neg), self.input_popularity_corr)
+        r_pop_corr_cost = get_correlation_loss((predict_pos - predict_neg), self.input_popularity_corr)
 
-        self.all_cost = self.r_cost - self.alpha * self.a_cost  # the loss function
+        all_cost = self.r_cost - self.alpha * self.a_cost  # the *un-regulerized* loss function
+        
+        self.all_cost_reg = (1 - self.reg_lambda) * all_cost + self.reg_lambda * r_pop_corr_cost #the regularized loss function
 
         with tf.compat.v1.variable_scope("Optimizer", reuse=tf.compat.v1.AUTO_REUSE):
             self.r_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=self.lr_r).minimize(self.r_cost, var_list=para_r)
             self.a_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=self.lr_a).minimize(self.a_cost, var_list=para_a)
-            self.all_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=self.lr_r).minimize(self.all_cost, var_list=para_r)
+            self.all_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=self.lr_r).minimize(self.all_cost_reg, var_list=para_r)
 
     def train_model(self, itr):
         NS_start_time = time.time() * 1000.0
@@ -189,7 +193,6 @@ class BPR_DRP_RSP_DEBIAS:
         epoch_s_mean = 0.0
         epoch_s_std = 0.0
         epoch_a_cost = 0.0
-        epoch_r_pop_corr_cost = 0.0
         
         num_sample, user_list, item_pos_list, item_neg_list, item_poplarity_corr_lst = \
             utility.negative_sample(self.train_df, self.num_rows,
@@ -229,8 +232,8 @@ class BPR_DRP_RSP_DEBIAS:
                     
                 item_idx_list = ((item_pos_list[batch_idx, :]).reshape((len(batch_idx)))).tolist() \
                                 + ((item_neg_list[batch_idx, :]).reshape((len(batch_idx)))).tolist()
-                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std, tmp_r_pop_corr_cost = self.sess.run(  # do the optimization by the minibatch
-                    [self.all_optimizer, self.all_cost, self.s_cost, self.s_mean, self.s_std, self.r_pop_corr_cost],
+                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std = self.sess.run(  # do the optimization by the minibatch
+                    [self.all_optimizer, self.all_cost_reg, self.s_cost, self.s_mean, self.s_std],
                     feed_dict={self.user_input: user_list[batch_idx, :],
                                self.item_input_pos: item_pos_list[batch_idx, :],
                                self.item_input_neg: item_neg_list[batch_idx, :],
@@ -241,12 +244,11 @@ class BPR_DRP_RSP_DEBIAS:
                 epoch_s_mean += np.mean(tmp_s_mean)
                 epoch_s_std += np.mean(tmp_s_std)
                 epoch_s_cost += tmp_s_cost
-                epoch_r_pop_corr_cost += tmp_r_pop_corr_cost
             else:
                 item_idx_list = ((item_pos_list[batch_idx, :]).reshape((len(batch_idx)))).tolist() \
                                 + ((item_neg_list[batch_idx, :]).reshape((len(batch_idx)))).tolist()
-                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std, tmp_r_pop_corr_cost = self.sess.run(  # do the optimization by the minibatch
-                    [self.r_optimizer, self.r_cost, self.s_cost, self.s_mean, self.s_std, self.r_pop_corr_cost],
+                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std= self.sess.run(  # do the optimization by the minibatch
+                    [self.r_optimizer, self.r_cost, self.s_cost, self.s_mean, self.s_std],
                     feed_dict={self.user_input: user_list[batch_idx, :],
                                self.item_input_pos: item_pos_list[batch_idx, :],
                                self.item_input_neg: item_neg_list[batch_idx, :],
@@ -257,7 +259,6 @@ class BPR_DRP_RSP_DEBIAS:
                 epoch_s_mean += np.mean(tmp_s_mean)
                 epoch_s_std += np.mean(tmp_s_std)
                 epoch_s_cost += tmp_s_cost
-                epoch_r_pop_corr_cost += tmp_r_pop_corr_cost
         epoch_a_cost /= num_batch
         if itr % self.display_step == 0:
             print ("Training //", "Epoch %d //" % itr, " Total r_cost = %.5f" % epoch_r_cost,
@@ -265,7 +266,6 @@ class BPR_DRP_RSP_DEBIAS:
                    " Total s_mean = %.5f" % epoch_s_mean,
                    " Total s_std = %.5f" % epoch_s_std,
                    " Total a_cost = %.5f" % epoch_a_cost,
-                   " Total r_pop_corr_cost= %.5f" % epoch_r_pop_corr_cost,
                    "Training time : %d ms" % (time.time() * 1000.0 - start_time),
                    "negative Sampling time : %d ms" % (NS_end_time - NS_start_time),
                    "negative samples : %d" % (num_sample))
@@ -311,6 +311,7 @@ parser.add_argument('--hidden_neuron', type=int, default=20)
 parser.add_argument('--n', type=int, default=1)
 parser.add_argument('--neg', type=int, default=5)
 parser.add_argument('--alpha', type=float, default=5000.0)
+parser.add_argument('--reg_lambda', type=float, default=0.01)
 parser.add_argument('--batch_size', type=int, default=1024)
 parser.add_argument('--layers', nargs='?', default='[50, 50, 50, 50]')
 parser.add_argument('--dataname', nargs='?', default='ml1m-6')
