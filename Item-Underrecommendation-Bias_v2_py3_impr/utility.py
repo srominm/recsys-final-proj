@@ -6,6 +6,8 @@ import math
 from operator import itemgetter
 from scipy.stats import entropy
 from math import log
+from tqdm import tqdm
+import concurrent.futures
 
 top1 = 1
 top2 = 5
@@ -186,6 +188,67 @@ def test_model_all(Rec, test_df, train_df):
           % (ndcg[0], ndcg[1], ndcg[2], ndcg[3]))
     return precision, recall, f_score, ndcg
 
+# def process_user_items(user_i, train_df, item_set, neg, item_popularity):   
+#     user = []
+#     item_pos = []
+#     item_neg = []
+#     item_poplarity_corr_lst = []
+    
+#     like_item = (train_df.loc[train_df['user_id'] == user_i, 'item_id']).tolist()
+#     unlike_item = list(item_set - set(like_item))
+#     if len(unlike_item) < neg:
+#         tmp_neg = len(unlike_item)
+#     else:
+#         tmp_neg = neg  
+
+#     for l in like_item:
+#         neg_samples = (np.random.choice(unlike_item, size=tmp_neg, replace=False)).tolist()
+#         user += [user_i] * tmp_neg
+#         item_pos += [l] * tmp_neg
+#         item_neg += neg_samples
+#         if len(item_popularity)>0:
+#             item_poplarity_corr_lst += [item_popularity[l]/np.sum(item_popularity)] * tmp_neg
+        
+    
+#     return (user, item_pos, item_neg, item_poplarity_corr_lst)
+
+# def negative_sample(train_df, num_user, num_item, neg, item_popularity):
+#     user = []
+#     item_pos = []
+#     item_neg = []
+#     item_poplarity_corr_lst = []
+    
+#     item_poplarity_corr_tensor = None
+#     item_set = set(range(num_item))
+    
+#     print("Negative sampling...")
+    
+#     print("phase1...")
+#     with tqdm(total=num_user) as pbar:
+#         with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+#             futures = {executor.submit(process_user_items, i, train_df, item_set, neg, item_popularity): i for i in range(num_user)}
+#             results = {}
+#             for future in futures:
+#                 user_i = futures[future]
+#                 results[user_i] = future.result()
+#                 pbar.update(1)
+                
+#     print("phase 2...")
+#     for user_i, (user_tmp, item_pos_tmp, item_neg_tmp, item_poplarity_corr_lst_tmp) in tqdm(results.items()):
+#         user += user_tmp
+#         item_pos += item_pos_tmp
+#         item_neg += item_neg_tmp
+#         item_poplarity_corr_lst += item_poplarity_corr_lst_tmp
+
+#     print("Finished Negative sampling!")
+#     num_sample = len(user)
+    
+#     if len(item_poplarity_corr_lst) > 0:
+#         item_poplarity_corr_tensor = np.array(item_poplarity_corr_lst).reshape((num_sample, 1))
+
+#     return num_sample, np.array(user).reshape((num_sample, 1)),\
+#            np.array(item_pos).reshape((num_sample, 1)), np.array(item_neg).reshape((num_sample, 1)),\
+#            item_poplarity_corr_tensor
 
 def negative_sample(train_df, num_user, num_item, neg, item_popularity=None):
     user = []
@@ -194,7 +257,7 @@ def negative_sample(train_df, num_user, num_item, neg, item_popularity=None):
     item_poplarity_corr_lst = []
     item_poplarity_corr_tensor = None
     item_set = set(range(num_item))
-    for i in range(num_user):
+    for i in tqdm(range(num_user)):
         like_item = (train_df.loc[train_df['user_id'] == i, 'item_id']).tolist()
         unlike_item = list(item_set - set(like_item))
         if len(unlike_item) < neg:
@@ -207,16 +270,16 @@ def negative_sample(train_df, num_user, num_item, neg, item_popularity=None):
             item_pos += [l] * tmp_neg
             item_neg += neg_samples
 
-            if item_popularity:
-                for _ in range(len(item_neg)):
-                    item_poplarity_corr_lst.append(item_popularity[l] / np.sum(item_popularity))
-                    item_poplarity_corr_tensor = np.array(item_poplarity_corr_lst).reshape((num_sample, 1))
+#             if item_popularity:
+#                 for _ in range(len(item_neg)):
+#                     item_poplarity_corr_lst.append(item_popularity[l] / np.sum(item_popularity))
+#                     item_poplarity_corr_tensor = np.array(item_poplarity_corr_lst).reshape((num_sample, 1))
 
     num_sample = len(user)
 
     return num_sample, np.array(user).reshape((num_sample, 1)),\
-           np.array(item_pos).reshape((num_sample, 1)), np.array(item_neg).reshape((num_sample, 1)),\
-           item_poplarity_corr_tensor
+           np.array(item_pos).reshape((num_sample, 1)), np.array(item_neg).reshape((num_sample, 1))
+#            item_poplarity_corr_tensor
 
 
 def ranking_analysis(Rec, test_df, train_df, key_genre, item_idd_genre_list, user_genre_count):

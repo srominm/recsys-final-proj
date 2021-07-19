@@ -9,34 +9,13 @@ import utility
 import pandas as pd
 from sklearn.metrics import *
 
-def get_dot_difference_shape(shapeVectorList):
-    userEmbeddingShapeVector, itemPositiveEmbeddingShapeVector, itemNegativeEmbeddingShapeVector = shapeVectorList
-    return userEmbeddingShapeVector[0], 1
 
-def get_dot_difference(parameterMatrixList):
-    userEmbeddingMatrix, itemPositiveEmbeddingMatrix, itemNegativeEmbeddingMatrix = parameterMatrixList
-    return tf.keras.backend.batch_dot(userEmbeddingMatrix, itemPositiveEmbeddingMatrix, axes=1) - tf.keras.backend.batch_dot(userEmbeddingMatrix, itemNegativeEmbeddingMatrix, axes=1)
-
-
-def get_correlation_loss(y_true, y_pred):
-    x = y_true
-    y = y_pred
-    mx = tf.keras.backend.mean(x)
-    my = tf.keras.backend.mean(y)
-    xm, ym = x-mx, y-my
-    r_num = tf.keras.backend.sum(tf.multiply(xm,ym))
-    r_den = tf.keras.backend.sqrt(tf.multiply(tf.keras.backend.sum(tf.keras.backend.square(xm)), tf.keras.backend.sum(tf.keras.backend.square(ym))))
-    r = r_num / tf.where(tf.equal(r_den, 0), 1e-3, r_den)
-    r = tf.keras.backend.abs(tf.keras.backend.maximum(tf.keras.backend.minimum(r, 1.0), -1.0))
-    return tf.keras.backend.square(r)
-
-
-class DPR_RSP:
-
+class BPR_DRP_RSP:
+    
     def __init__(self, sess, args, train_df, vali_df, item_genre, genre_error_weight,
                  key_genre, item_genre_list, user_genre_count):
         self.dataname = args.dataname
-
+        
         self.layers = eval(args.layers)
 
         self.key_genre = key_genre
@@ -70,30 +49,17 @@ class DPR_RSP:
 
         self.num_genre = args.num_genre
         self.alpha = args.alpha
-        self.beta = args.beta # the new parameter to controll the old cost and the corr lost
         self.item_genre = item_genre
         self.genre_error_weight = genre_error_weight
-
-        # popularity stats of items to use for the correlation loss in the learning process
-        all_items_unique = list(np.unique(train_df['item_id'].values))
-        self.item_popularity = np.array([len(train_df[train_df['item_id']==item_id].index) for item_id in all_items_unique])
-        print("^^^^^^^^^^^^^^")
-        print(train_df)
-        print("^^^^^^^^^^^^^^")
-        
-        print("************")
-        print(pd.Series(self.item_popularity))
-        print("************")
 
         self.genre_count_list = []
         for k in range(self.num_genre):
             self.genre_count_list.append(np.sum(item_genre[:, k]))
 
-        # print('**********DPR_RSP**********')
-        print('**********DPR_RSP + Popularity Debiasing**********')
+        print('**********BPR - DPR_RSP**********')
         print(self.args)
         self._prepare_model()
-
+        
     def loadmodel(self, saver, checkpoint_dir):
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
@@ -106,10 +72,10 @@ class DPR_RSP:
     def run(self):
         init = tf.compat.v1.global_variables_initializer()
         self.sess.run(init)
-
+        
         saver = tf.compat.v1.train.Saver([self.P, self.Q])
         self.loadmodel(saver, "./"+self.dataname+"/BPR_check_points")
-
+        
         for epoch_itr in range(1, self.train_epoch + 1 + self.train_epoch_a):
             self.train_model(epoch_itr)
             if epoch_itr % self.display_step == 0:
@@ -121,26 +87,21 @@ class DPR_RSP:
             self.user_input = tf.compat.v1.placeholder(tf.int32, shape=[None, 1], name="user_input")
             self.item_input_pos = tf.compat.v1.placeholder(tf.int32, shape=[None, 1], name="item_input_pos")
             self.item_input_neg = tf.compat.v1.placeholder(tf.int32, shape=[None, 1], name="item_input_neg")
-
+            
             self.input_item_genre = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, self.num_genre]
                                                    , name="input_item_genre")
             self.input_item_error_weight = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, 1]
                                                           , name="input_item_error_weight")
-            # labels for the popularity correlations
-            self.input_popularity_corr = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, 1], 
-                name="input_item_popularity_corr")
-            
-            tf.print("input_popularity_corr (shape={}):\n{}".format(self.input_popularity_corr.shape, self.input_popularity_corr))
+
 
         with tf.compat.v1.variable_scope("BPR", reuse=tf.compat.v1.AUTO_REUSE):
-            self.P = tf.compat.v1.get_variable(name="P",
-                                     initializer=tf.random.truncated_normal(shape=[self.num_rows, self.hidden_neuron], mean=0,
-                                                                     stddev=0.03), dtype=tf.float32)#, use_resource=False)
-            self.Q = tf.compat.v1.get_variable(name="Q",
-                                     initializer=tf.random.truncated_normal(shape=[self.num_cols, self.hidden_neuron], mean=0,
-                                                                     stddev=0.03), dtype=tf.float32)#, use_resource=False)
+            self.P = tf.compat.v1.get_variable(name="P", initializer=tf.random.truncated_normal(shape=[self.num_rows, self.hidden_neuron],
+                                                                          mean=0, stddev=0.03), dtype=tf.float32, use_resource=False)
+            self.Q = tf.compat.v1.get_variable(name="Q", initializer=tf.random.truncated_normal(shape=[self.num_cols, self.hidden_neuron],
+                                                                          mean=0, stddev=0.03), dtype=tf.float32, use_resource=False)
+            
         para_r = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES, scope="BPR")
-
+        
         with tf.compat.v1.variable_scope("Adversarial", reuse=tf.compat.v1.AUTO_REUSE):
             num_layer = len(self.layers)
             adv_W = []
@@ -165,15 +126,18 @@ class DPR_RSP:
                                                                         mean=0, stddev=0.03), dtype=tf.float32)#, use_resource=False)
         para_a = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.GLOBAL_VARIABLES, scope="Adversarial")
 
+        self.saver = tf.compat.v1.train.Saver([self.P, self.Q])
+
         p = tf.reduce_sum(input_tensor=tf.nn.embedding_lookup(params=self.P, ids=self.user_input), axis=1)
         q_neg = tf.reduce_sum(input_tensor=tf.nn.embedding_lookup(params=self.Q, ids=self.item_input_neg), axis=1)
         q_pos = tf.reduce_sum(input_tensor=tf.nn.embedding_lookup(params=self.Q, ids=self.item_input_pos), axis=1)
 
-        predict_pos = tf.reduce_sum(input_tensor=p * q_pos, axis=1)
-        predict_neg = tf.reduce_sum(input_tensor=p * q_neg, axis=1)
+        predict_pos = (tf.reduce_sum(input_tensor=p * q_pos, axis=1))
+        predict_neg = (tf.reduce_sum(input_tensor=p * q_neg, axis=1))
 
         r_cost1 = tf.reduce_sum(input_tensor=tf.nn.softplus(-(predict_pos - predict_neg)))
         r_cost2 = self.reg * 0.5 * (self.l2_norm(self.P) + self.l2_norm(self.Q))  # regularization term
+        
         pred = tf.matmul(self.P, tf.transpose(a=self.Q))
         self.s_mean = tf.reduce_mean(input_tensor=pred, axis=1)
         self.s_std = tf.keras.backend.std(pred, axis=1)
@@ -186,21 +150,8 @@ class DPR_RSP:
             adv_last = adv
         self.adv_output = tf.nn.sigmoid(tf.matmul(adv_last, adv_W_out) + adv_b_out)
         self.a_cost = tf.reduce_sum(input_tensor=tf.square(self.adv_output - self.input_item_genre) * self.input_item_error_weight)
-        
-        tf.print("pred (shape={}):\n{}".format(pred.shape, pred))
-        tf.print("p (shape={}):\n{}".format(p.shape, p))
-        tf.print("q_pos (shape={}):\n{}".format(q_pos.shape, q_pos))
-        tf.print("q_neg (shape={}):\n{}".format(q_neg.shape, q_neg))
 
-        # The addition of the correlation losss
-#         dot_other_dot_difference = tf.keras.layers.Lambda(get_dot_difference, output_shape=get_dot_difference_shape, name='corr')([p, q_pos, q_neg])
-        
-#         tf.print("dot_other_dot_difference (shape={}):\n{}".format(dot_other_dot_difference.shape, dot_other_dot_difference))
-        
-        self.r_pop_corr_cost = get_correlation_loss((predict_pos - predict_neg), self.input_popularity_corr)
-
-        # self.all_cost = self.r_cost - self.alpha * self.a_cost  # the loss function (old ver.)
-        self.all_cost = (1-self.beta) * (self.r_cost - self.alpha * self.a_cost) + self.beta * self.r_pop_corr_cost  # the loss function (new ver.)
+        self.all_cost = self.r_cost - self.alpha * self.a_cost  # the loss function
 
         with tf.compat.v1.variable_scope("Optimizer", reuse=tf.compat.v1.AUTO_REUSE):
             self.r_optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=self.lr_r).minimize(self.r_cost, var_list=para_r)
@@ -214,31 +165,22 @@ class DPR_RSP:
         epoch_s_mean = 0.0
         epoch_s_std = 0.0
         epoch_a_cost = 0.0
-        epoch_r_pop_corr_cost = 0.0
-        num_sample, user_list, item_pos_list, item_neg_list, item_poplarity_corr_lst = \
-            utility.negative_sample(
-                self.train_df, self.num_rows,
-                self.num_cols, self.neg, 
-                item_popularity=self.item_popularity)
-        print("-----------------------------------------------------------------------------")
-        print("num_sample:\n{}".format(num_sample))
-        print("user_list (shape={}):\n{}".format(user_list.shape, user_list))
-        print("item_pos_list (shape={}):\n{}".format(item_pos_list.shape, item_pos_list))
-        print("item_neg_list (shape={}):\n{}".format(item_neg_list.shape, item_neg_list))
-        print("item_poplarity_corr_lst (shape={}):\n{}".format(item_poplarity_corr_lst.shape, item_poplarity_corr_lst))
-        print("-----------------------------------------------------------------------------")
+        
+        num_sample, user_list, item_pos_list, item_neg_list = utility.negative_sample(self.train_df, self.num_rows,
+                                                                                      self.num_cols, self.neg)
         NS_end_time = time.time() * 1000.0
 
         start_time = time.time() * 1000.0
         num_batch = int(num_sample / float(self.batch_size)) + 1
         random_idx = np.random.permutation(num_sample)
         for i in range(num_batch):
+
             # get the indices of the current batch
             if i == num_batch - 1:
                 batch_idx = random_idx[i * self.batch_size:]
             elif i < num_batch - 1:
                 batch_idx = random_idx[(i * self.batch_size):((i + 1) * self.batch_size)]
-
+            
             if itr > self.train_epoch:
                 random_idx_a = np.random.permutation(num_sample)
                 for j in range(num_batch):
@@ -254,41 +196,36 @@ class DPR_RSP:
                                    self.item_input_pos: item_pos_list[batch_idx_a, :],
                                    self.item_input_neg: item_neg_list[batch_idx_a, :],
                                    self.input_item_genre: self.item_genre[item_idx_list, :],
-                                   self.input_item_error_weight: self.genre_error_weight[item_idx_list, :],
-                                   self.input_popularity_corr: item_poplarity_corr_lst[item_idx_list, :]})
+                                   self.input_item_error_weight: self.genre_error_weight[item_idx_list, :]})
                     epoch_a_cost += tmp_a_cost
-
+                    
                 item_idx_list = ((item_pos_list[batch_idx, :]).reshape((len(batch_idx)))).tolist() \
                                 + ((item_neg_list[batch_idx, :]).reshape((len(batch_idx)))).tolist()
-                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std, tmp_r_pop_corr_cost = self.sess.run(  # do the optimization by the minibatch
-                    [self.all_optimizer, self.all_cost, self.s_cost, self.s_mean, self.s_std, self.r_pop_corr_cost],
+                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std = self.sess.run(  # do the optimization by the minibatch
+                    [self.all_optimizer, self.all_cost, self.s_cost, self.s_mean, self.s_std],
                     feed_dict={self.user_input: user_list[batch_idx, :],
                                self.item_input_pos: item_pos_list[batch_idx, :],
                                self.item_input_neg: item_neg_list[batch_idx, :],
                                self.input_item_genre: self.item_genre[item_idx_list, :],
-                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :],
-                               self.input_popularity_corr: item_poplarity_corr_lst[item_idx_list, :]})
+                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :]})
                 epoch_r_cost += tmp_r_cost
                 epoch_s_mean += np.mean(tmp_s_mean)
                 epoch_s_std += np.mean(tmp_s_std)
                 epoch_s_cost += tmp_s_cost
-                epoch_r_pop_corr_cost += tmp_r_pop_corr_cost
             else:
                 item_idx_list = ((item_pos_list[batch_idx, :]).reshape((len(batch_idx)))).tolist() \
                                 + ((item_neg_list[batch_idx, :]).reshape((len(batch_idx)))).tolist()
-                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std, tmp_r_pop_corr_cost = self.sess.run(  # do the optimization by the minibatch
-                    [self.r_optimizer, self.r_cost, self.s_cost, self.s_mean, self.s_std, self.r_pop_corr_cost],
+                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std = self.sess.run(  # do the optimization by the minibatch
+                    [self.r_optimizer, self.r_cost, self.s_cost, self.s_mean, self.s_std],
                     feed_dict={self.user_input: user_list[batch_idx, :],
                                self.item_input_pos: item_pos_list[batch_idx, :],
                                self.item_input_neg: item_neg_list[batch_idx, :],
                                self.input_item_genre: self.item_genre[item_idx_list, :],
-                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :],
-                               self.input_popularity_corr: item_poplarity_corr_lst[item_idx_list, :]})
+                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :]})
                 epoch_r_cost += tmp_r_cost
                 epoch_s_mean += np.mean(tmp_s_mean)
                 epoch_s_std += np.mean(tmp_s_std)
                 epoch_s_cost += tmp_s_cost
-                epoch_r_pop_corr_cost += tmp_r_pop_corr_cost
         epoch_a_cost /= num_batch
         if itr % self.display_step == 0:
             print ("Training //", "Epoch %d //" % itr, " Total r_cost = %.5f" % epoch_r_cost,
@@ -296,10 +233,14 @@ class DPR_RSP:
                    " Total s_mean = %.5f" % epoch_s_mean,
                    " Total s_std = %.5f" % epoch_s_std,
                    " Total a_cost = %.5f" % epoch_a_cost,
-                   " Total pop_corr_loss = %.5f" % epoch_r_pop_corr_cost,
                    "Training time : %d ms" % (time.time() * 1000.0 - start_time),
                    "negative Sampling time : %d ms" % (NS_end_time - NS_start_time),
                    "negative samples : %d" % (num_sample))
+
+        ckpt_save_path = "./"+self.dataname+"/BPR_check_points"
+        if not os.path.exists(ckpt_save_path):
+            os.makedirs(ckpt_save_path)
+        self.saver.save(sess, ckpt_save_path + "/check_point.ckpt", global_step=itr)
 
     def test_model(self, itr):  # calculate the cost and rmse of testing set in each epoch
         if itr % self.display_step == 0:
@@ -310,7 +251,8 @@ class DPR_RSP:
             utility.test_model_all(Rec, self.vali_df, self.train_df)
             utility.ranking_analysis(Rec, self.vali_df, self.train_df, self.key_genre, self.item_genre_list,
                                      self.user_genre_count)
-            print(
+
+            print (
                 "Testing //", "Epoch %d //" % itr,
                 "Testing time : %d ms" % (time.time() * 1000.0 - start_time))
             print("=" * 200)
@@ -318,6 +260,7 @@ class DPR_RSP:
     def make_records(self):  # record all the results' details into files
         P, Q = self.sess.run([self.P, self.Q])
         Rec = np.matmul(P, Q.T)
+
         [precision, recall, f_score, NDCG] = utility.test_model_all(Rec, self.vali_df, self.train_df)
         return precision, recall, f_score, NDCG, Rec
 
@@ -326,8 +269,8 @@ class DPR_RSP:
         return tf.reduce_sum(input_tensor=tf.square(tensor))
 
 
-parser = argparse.ArgumentParser(description='DPR_RSP')
-parser.add_argument('--train_epoch', type=int, default=0)
+parser = argparse.ArgumentParser(description='BPR_DRP_RSP')
+parser.add_argument('--train_epoch', type=int, default=20)
 parser.add_argument('--train_epoch_a', type=int, default=20)
 parser.add_argument('--display_step', type=int, default=1)
 parser.add_argument('--lr_r', type=float, default=0.01)
@@ -338,10 +281,9 @@ parser.add_argument('--hidden_neuron', type=int, default=20)
 parser.add_argument('--n', type=int, default=1)
 parser.add_argument('--neg', type=int, default=5)
 parser.add_argument('--alpha', type=float, default=5000.0)
-parser.add_argument('--beta', type=float, default=0) # new parameter to controll the old cost and the correlation cost
 parser.add_argument('--batch_size', type=int, default=1024)
 parser.add_argument('--layers', nargs='?', default='[50, 50, 50, 50]')
-parser.add_argument('--dataname', nargs='?', default='ml1m-2')
+parser.add_argument('--dataname', nargs='?', default='ml1m-6')
 args = parser.parse_args()
 
 dataname = args.dataname
@@ -371,6 +313,8 @@ with open('./' + dataname + '/user_genre_count.pkl', 'rb') as user_genre_count_f
 num_item = len(train_df['item_id'].unique())
 num_user = len(train_df['user_id'].unique())
 num_genre = len(key_genre)
+
+args.num_genre = num_genre
 
 item_genre_list = []
 for u in range(num_item):
@@ -412,11 +356,11 @@ REO = np.zeros(4)
 n = args.n
 for i in range(n):
     with tf.compat.v1.Session() as sess:
-        dpr = DPR_RSP(sess, args, train_df, vali_df, item_genre, genre_error_weight,
-                      key_genre, item_genre_list, user_genre_count)
-        [prec_one, rec_one, f_one, ndcg_one, Rec] = dpr.run()
-        [RSP_one, REO_one] = utility.ranking_analysis(Rec, vali_df, train_df, key_genre,
-                                                      item_genre_list, user_genre_count)
+        bpr_drp_rsp = BPR_DRP_RSP(sess, args, train_df, vali_df, item_genre, genre_error_weight, 
+                                  key_genre, item_genre_list, user_genre_count)
+        [prec_one, rec_one, f_one, ndcg_one, Rec] = bpr_drp_rsp.run()
+        [RSP_one, REO_one] = utility.ranking_analysis(Rec, vali_df, train_df, key_genre, item_genre_list,
+                                                      user_genre_count)
         precision += prec_one
         recall += rec_one
         f1 += f_one
@@ -424,7 +368,7 @@ for i in range(n):
         RSP += RSP_one
         REO += REO_one
 
-with open('Rec_' + dataname + '_DPR_RSP.mat', "wb") as f:
+with open('Rec_' + dataname + '_BPR_DRP_RSP.mat', "wb") as f:
     np.save(f, Rec)
 
 
