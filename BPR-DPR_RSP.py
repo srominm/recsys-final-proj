@@ -7,22 +7,10 @@ import pickle
 import argparse
 import utility
 import pandas as pd
-from tqdm import tqdm
 from sklearn.metrics import *
 
-def get_correlation_loss(y_true, y_pred):
-    x = y_true
-    y = y_pred
-    mx = tf.keras.backend.mean(x)
-    my = tf.keras.backend.mean(y)
-    xm, ym = x-mx, y-my
-    r_num = tf.keras.backend.sum(tf.multiply(xm,ym))
-    r_den = tf.keras.backend.sqrt(tf.multiply(tf.keras.backend.sum(tf.keras.backend.square(xm)), tf.keras.backend.sum(tf.keras.backend.square(ym))))
-    r = r_num / tf.where(tf.equal(r_den, 0), 1e-3, r_den)
-    r = tf.keras.backend.abs(tf.keras.backend.maximum(tf.keras.backend.minimum(r, 1.0), -1.0))
-    return tf.keras.backend.square(r)
 
-class BPR_DRP_RSP_DEBIAS:
+class BPR_DRP_RSP:
     
     def __init__(self, sess, args, train_df, vali_df, item_genre, genre_error_weight,
                  key_genre, item_genre_list, user_genre_count, outputs_dir):
@@ -66,15 +54,12 @@ class BPR_DRP_RSP_DEBIAS:
         self.alpha = args.alpha
         self.item_genre = item_genre
         self.genre_error_weight = genre_error_weight
-        
-        all_items_unique = list(np.unique(train_df['item_id'].values))
-        self.item_popularity = np.array([len(train_df[train_df['item_id']==item_id].index) for item_id in all_items_unique])
 
         self.genre_count_list = []
         for k in range(self.num_genre):
             self.genre_count_list.append(np.sum(item_genre[:, k]))
 
-        print('**********BPR - DPR_RSP_DEBIAS Popularity**********')
+        print('**********BPR - DPR_RSP**********')
         print(self.args)
         self._prepare_model()
         
@@ -112,9 +97,7 @@ class BPR_DRP_RSP_DEBIAS:
                                                    , name="input_item_genre")
             self.input_item_error_weight = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, 1]
                                                           , name="input_item_error_weight")
-            
-            self.input_popularity_corr = tf.compat.v1.placeholder(dtype=tf.float32, shape=[None, 1], 
-                                                                  name="input_item_popularity_corr")
+
 
         with tf.compat.v1.variable_scope("BPR", reuse=tf.compat.v1.AUTO_REUSE):
             self.P = tf.compat.v1.get_variable(name="P", initializer=tf.random.truncated_normal(shape=[self.num_rows, self.hidden_neuron],
@@ -172,8 +155,6 @@ class BPR_DRP_RSP_DEBIAS:
             adv_last = adv
         self.adv_output = tf.nn.sigmoid(tf.matmul(adv_last, adv_W_out) + adv_b_out)
         self.a_cost = tf.reduce_sum(input_tensor=tf.square(self.adv_output - self.input_item_genre) * self.input_item_error_weight)
-        
-        self.r_pop_corr_cost = get_correlation_loss((predict_pos - predict_neg), self.input_popularity_corr)
 
         self.all_cost = self.r_cost - self.alpha * self.a_cost  # the loss function
 
@@ -189,18 +170,15 @@ class BPR_DRP_RSP_DEBIAS:
         epoch_s_mean = 0.0
         epoch_s_std = 0.0
         epoch_a_cost = 0.0
-        epoch_r_pop_corr_cost = 0.0
         
-        num_sample, user_list, item_pos_list, item_neg_list, item_poplarity_corr_lst = \
-            utility.negative_sample(self.train_df, self.num_rows,
-                                    self.num_cols, self.neg,
-                                    item_popularity=self.item_popularity)
+        num_sample, user_list, item_pos_list, item_neg_list, _ = utility.negative_sample(self.train_df, self.num_rows,
+                                                                                      self.num_cols, self.neg)
         NS_end_time = time.time() * 1000.0
 
         start_time = time.time() * 1000.0
         num_batch = int(num_sample / float(self.batch_size)) + 1
         random_idx = np.random.permutation(num_sample)
-        for i in tqdm(range(num_batch)):
+        for i in range(num_batch):
 
             # get the indices of the current batch
             if i == num_batch - 1:
@@ -223,41 +201,36 @@ class BPR_DRP_RSP_DEBIAS:
                                    self.item_input_pos: item_pos_list[batch_idx_a, :],
                                    self.item_input_neg: item_neg_list[batch_idx_a, :],
                                    self.input_item_genre: self.item_genre[item_idx_list, :],
-                                   self.input_item_error_weight: self.genre_error_weight[item_idx_list, :],
-                                   self.input_popularity_corr: item_poplarity_corr_lst[item_idx_list, :]})
+                                   self.input_item_error_weight: self.genre_error_weight[item_idx_list, :]})
                     epoch_a_cost += tmp_a_cost
                     
                 item_idx_list = ((item_pos_list[batch_idx, :]).reshape((len(batch_idx)))).tolist() \
                                 + ((item_neg_list[batch_idx, :]).reshape((len(batch_idx)))).tolist()
-                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std, tmp_r_pop_corr_cost = self.sess.run(  # do the optimization by the minibatch
-                    [self.all_optimizer, self.all_cost, self.s_cost, self.s_mean, self.s_std, self.r_pop_corr_cost],
+                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std = self.sess.run(  # do the optimization by the minibatch
+                    [self.all_optimizer, self.all_cost, self.s_cost, self.s_mean, self.s_std],
                     feed_dict={self.user_input: user_list[batch_idx, :],
                                self.item_input_pos: item_pos_list[batch_idx, :],
                                self.item_input_neg: item_neg_list[batch_idx, :],
                                self.input_item_genre: self.item_genre[item_idx_list, :],
-                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :],
-                               self.input_popularity_corr: item_poplarity_corr_lst[item_idx_list, :]})
+                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :]})
                 epoch_r_cost += tmp_r_cost
                 epoch_s_mean += np.mean(tmp_s_mean)
                 epoch_s_std += np.mean(tmp_s_std)
                 epoch_s_cost += tmp_s_cost
-                epoch_r_pop_corr_cost += tmp_r_pop_corr_cost
             else:
                 item_idx_list = ((item_pos_list[batch_idx, :]).reshape((len(batch_idx)))).tolist() \
                                 + ((item_neg_list[batch_idx, :]).reshape((len(batch_idx)))).tolist()
-                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std, tmp_r_pop_corr_cost = self.sess.run(  # do the optimization by the minibatch
-                    [self.r_optimizer, self.r_cost, self.s_cost, self.s_mean, self.s_std, self.r_pop_corr_cost],
+                _, tmp_r_cost, tmp_s_cost, tmp_s_mean, tmp_s_std = self.sess.run(  # do the optimization by the minibatch
+                    [self.r_optimizer, self.r_cost, self.s_cost, self.s_mean, self.s_std],
                     feed_dict={self.user_input: user_list[batch_idx, :],
                                self.item_input_pos: item_pos_list[batch_idx, :],
                                self.item_input_neg: item_neg_list[batch_idx, :],
                                self.input_item_genre: self.item_genre[item_idx_list, :],
-                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :],
-                               self.input_popularity_corr: item_poplarity_corr_lst[item_idx_list, :]})
+                               self.input_item_error_weight: self.genre_error_weight[item_idx_list, :]})
                 epoch_r_cost += tmp_r_cost
                 epoch_s_mean += np.mean(tmp_s_mean)
                 epoch_s_std += np.mean(tmp_s_std)
                 epoch_s_cost += tmp_s_cost
-                epoch_r_pop_corr_cost += tmp_r_pop_corr_cost
         epoch_a_cost /= num_batch
         if itr % self.display_step == 0:
             print ("Training //", "Epoch %d //" % itr, " Total r_cost = %.5f" % epoch_r_cost,
@@ -265,7 +238,6 @@ class BPR_DRP_RSP_DEBIAS:
                    " Total s_mean = %.5f" % epoch_s_mean,
                    " Total s_std = %.5f" % epoch_s_std,
                    " Total a_cost = %.5f" % epoch_a_cost,
-                   " Total r_pop_corr_cost= %.5f" % epoch_r_pop_corr_cost,
                    "Training time : %d ms" % (time.time() * 1000.0 - start_time),
                    "negative Sampling time : %d ms" % (NS_end_time - NS_start_time),
                    "negative samples : %d" % (num_sample))
@@ -299,7 +271,7 @@ class BPR_DRP_RSP_DEBIAS:
         return tf.reduce_sum(input_tensor=tf.square(tensor))
 
 
-parser = argparse.ArgumentParser(description='BPR-DPR-RSP-DEBIAS')
+parser = argparse.ArgumentParser(description='BPR_DRP_RSP')
 parser.add_argument('--train_epoch', type=int, default=20)
 parser.add_argument('--train_epoch_a', type=int, default=20)
 parser.add_argument('--display_step', type=int, default=1)
@@ -318,26 +290,19 @@ args = parser.parse_args()
 
 dataname = args.dataname
 
+datasets_base_dir = './datasets'
 
-# train_df = pickle.load(open('./' + dataname + '/training_df.pkl'))
-train_df = pd.read_pickle('./' + dataname + '/training_df.pkl')
-# vali_df = pickle.load(open('./' + dataname + '/valiing_df.pkl'))  # for validation
-vali_df = pd.read_pickle('./' + dataname + '/valiing_df.pkl')
-# vali_df = pickle.load(open('./' + dataname + '/testing_df.pkl'))  # for testing
-# key_genre = pickle.load(open('./' + dataname + '/key_genre.pkl'))
-with open('./' + dataname + '/key_genre.pkl', 'rb') as key_genre_f:
+train_df = pd.read_pickle(os.path.join(datasets_base_dir, dataname, 'training_df.pkl'))
+vali_df = pd.read_pickle(os.path.join(datasets_base_dir, dataname, 'valiing_df.pkl'))
+with open(os.path.join(datasets_base_dir, dataname, 'key_genre.pkl'), 'rb') as key_genre_f:
     key_genre = pickle.load(key_genre_f)
-# item_idd_genre_list = pickle.load(open('./' + dataname + '/item_idd_genre_list.pkl'))
-with open('./' + dataname + '/item_idd_genre_list.pkl', 'rb') as item_idd_genre_list_f:
+with open(os.path.join(datasets_base_dir, dataname, 'item_idd_genre_list.pkl'), 'rb') as item_idd_genre_list_f:
     item_idd_genre_list = pickle.load(item_idd_genre_list_f)
-# genre_item_vector = pickle.load(open('./' + dataname + '/genre_item_vector.pkl'))
-with open('./' + dataname + '/genre_item_vector.pkl', 'rb') as genre_item_vector_f:
+with open(os.path.join(datasets_base_dir, dataname, 'genre_item_vector.pkl'), 'rb') as genre_item_vector_f:
     genre_item_vector = pickle.load(genre_item_vector_f, encoding="latin1")
-# genre_count = pickle.load(open('./' + dataname + '/genre_count.pkl'))
-with open('./' + dataname + '/genre_count.pkl', 'rb') as genre_count_f:
+with open(os.path.join(datasets_base_dir, dataname, 'genre_count.pkl'), 'rb') as genre_count_f:
     genre_count = pickle.load(genre_count_f)
-# user_genre_count = pickle.load(open('./' + dataname + '/user_genre_count.pkl'))
-with open('./' + dataname + '/user_genre_count.pkl', 'rb') as user_genre_count_f:
+with open(os.path.join(datasets_base_dir, dataname, 'user_genre_count.pkl'), 'rb') as user_genre_count_f:
     user_genre_count = pickle.load(user_genre_count_f)
 
 num_item = len(train_df['item_id'].unique())
@@ -360,7 +325,7 @@ print('number of positive feedback: ' + str(len(train_df)))
 print('estimated number of training samples: ' + str(args.neg * len(train_df)))
 print('!' * 100)
 
-outputs_dir = os.path.join('.', 'outputs', 'BPR_DRP_RSP_DEBIAS', dataname)
+outputs_dir = os.path.join('.', 'outputs', 'BPR_DRP_RSP', dataname)
 os.makedirs(outputs_dir, exist_ok=True)
 
 outputs_performance_dir = os.path.join(outputs_dir, 'performance')
@@ -392,9 +357,9 @@ REO = np.zeros(4)
 n = args.n
 for i in range(n):
     with tf.compat.v1.Session() as sess:
-        bpr_drp_rsp_debias = BPR_DRP_RSP_DEBIAS(sess, args, train_df, vali_df, item_genre, genre_error_weight, 
+        bpr_drp_rsp = BPR_DRP_RSP(sess, args, train_df, vali_df, item_genre, genre_error_weight, 
                                   key_genre, item_genre_list, user_genre_count, outputs_dir)
-        [prec_one, rec_one, f_one, ndcg_one, Rec] = bpr_drp_rsp_debias.run()
+        [prec_one, rec_one, f_one, ndcg_one, Rec] = bpr_drp_rsp.run()
         [RSP_one, REO_one] = utility.ranking_analysis(Rec, vali_df, train_df, key_genre, item_genre_list,
                                                       user_genre_count)
         precision += prec_one
@@ -407,7 +372,6 @@ for i in range(n):
 with open(os.path.join(outputs_performance_dir, 'Recs.mat'), "wb") as f:
     np.save(f, Rec)
 
-
 precision /= n
 recall /= n
 f1 /= n
@@ -415,12 +379,12 @@ ndcg /= n
 RSP /= n
 REO /= n
 
-utility.plot_performance(precision, "Precision", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(precision, "Recall", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(precision, "F1", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(precision, "NDCG", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(precision, "RSP", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(precision, "REO", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
+utility.plot_performance(precision, "Precision", outputs_performance_dir, "({}) BPR_DRP_RSP".format(dataname))
+utility.plot_performance(precision, "Recall", outputs_performance_dir, "({}) BPR_DRP_RSP".format(dataname))
+utility.plot_performance(precision, "F1", outputs_performance_dir, "({}) BPR_DRP_RSP".format(dataname))
+utility.plot_performance(precision, "NDCG", outputs_performance_dir, "({}) BPR_DRP_RSP".format(dataname))
+utility.plot_performance(precision, "RSP", outputs_performance_dir, "({}) BPR_DRP_RSP".format(dataname))
+utility.plot_performance(precision, "REO", outputs_performance_dir, "({}) BPR_DRP_RSP".format(dataname))
 
 print('')
 print('*' * 100)

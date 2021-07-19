@@ -180,26 +180,19 @@ args = parser.parse_args()
 
 dataname = args.dataname
 
+datasets_base_dir = './datasets'
 
-# train_df = pickle.load(open('./' + dataname + '/training_df.pkl'))
-train_df = pd.read_pickle('./' + dataname + '/training_df.pkl')
-# vali_df = pickle.load(open('./' + dataname + '/valiing_df.pkl'))  # for validation
-vali_df = pd.read_pickle('./' + dataname + '/valiing_df.pkl')
-# vali_df = pickle.load(open('./' + dataname + '/testing_df.pkl'))  # for testing
-# key_genre = pickle.load(open('./' + dataname + '/key_genre.pkl'))
-with open('./' + dataname + '/key_genre.pkl', 'rb') as key_genre_f:
+train_df = pd.read_pickle(os.path.join(datasets_base_dir, dataname, 'training_df.pkl'))
+vali_df = pd.read_pickle(os.path.join(datasets_base_dir, dataname, 'valiing_df.pkl'))
+with open(os.path.join(datasets_base_dir, dataname, 'key_genre.pkl'), 'rb') as key_genre_f:
     key_genre = pickle.load(key_genre_f)
-# item_idd_genre_list = pickle.load(open('./' + dataname + '/item_idd_genre_list.pkl'))
-with open('./' + dataname + '/item_idd_genre_list.pkl', 'rb') as item_idd_genre_list_f:
+with open(os.path.join(datasets_base_dir, dataname, 'item_idd_genre_list.pkl'), 'rb') as item_idd_genre_list_f:
     item_idd_genre_list = pickle.load(item_idd_genre_list_f)
-# genre_item_vector = pickle.load(open('./' + dataname + '/genre_item_vector.pkl'))
-with open('./' + dataname + '/genre_item_vector.pkl', 'rb') as genre_item_vector_f:
+with open(os.path.join(datasets_base_dir, dataname, 'genre_item_vector.pkl'), 'rb') as genre_item_vector_f:
     genre_item_vector = pickle.load(genre_item_vector_f, encoding="latin1")
-# genre_count = pickle.load(open('./' + dataname + '/genre_count.pkl'))
-with open('./' + dataname + '/genre_count.pkl', 'rb') as genre_count_f:
+with open(os.path.join(datasets_base_dir, dataname, 'genre_count.pkl'), 'rb') as genre_count_f:
     genre_count = pickle.load(genre_count_f)
-# user_genre_count = pickle.load(open('./' + dataname + '/user_genre_count.pkl'))
-with open('./' + dataname + '/user_genre_count.pkl', 'rb') as user_genre_count_f:
+with open(os.path.join(datasets_base_dir, dataname, 'user_genre_count.pkl'), 'rb') as user_genre_count_f:
     user_genre_count = pickle.load(user_genre_count_f)
 
 num_item = len(train_df['item_id'].unique())
