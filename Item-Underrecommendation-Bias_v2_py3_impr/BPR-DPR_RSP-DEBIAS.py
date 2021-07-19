@@ -415,19 +415,12 @@ ndcg /= n
 RSP /= n
 REO /= n
 
-with open(os.path.join(outputs_performance_dir, 'precision.pkl'), "wb") as f:
-    pickle.dump(precision, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_performance_dir, 'recall.pkl'), "wb") as f:
-    pickle.dump(recall, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_performance_dir, 'f1.pkl'), "wb") as f:
-    pickle.dump(f1, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_performance_dir, 'ndcg.pkl'), "wb") as f:
-    pickle.dump(ndcg, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_performance_dir, 'RSP.pkl'), "wb") as f:
-    pickle.dump(RSP, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_performance_dir, 'REO.pkl'), "wb") as f:
-    pickle.dump(REO, f, pickle.HIGHEST_PROTOCOL)
-
+utility.plot_performance(precision, "Precision", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
+utility.plot_performance(precision, "Recall", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
+utility.plot_performance(precision, "F1", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
+utility.plot_performance(precision, "NDCG", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
+utility.plot_performance(precision, "RSP", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
+utility.plot_performance(precision, "REO", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
 
 print('')
 print('*' * 100)

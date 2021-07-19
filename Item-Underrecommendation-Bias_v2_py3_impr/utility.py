@@ -8,6 +8,7 @@ from scipy.stats import entropy
 from math import log
 from tqdm import tqdm
 import concurrent.futures
+import os
 
 top1 = 1
 top2 = 5
@@ -490,3 +491,13 @@ def relative_std(dictionary):
         tmp.append(value)
     rstd = np.std(tmp) / (np.mean(tmp) + 1e-10)
     return rstd
+
+def plot_performance(performance, performance_name, outputs_dir, base_fig_title, col_names=None):
+    if not col_names:
+        if len(performance) != 4:
+            raise Exception("Please pass col_names argument")
+        col_names = ["{}@1".format(performance_name), "{}@5".format(performance_name), "{}@10".format(performance_name), "{}@15".format(performance_name)]
+    performance_df = pd.DataFrame(performance, index=col_names).T
+    ax = performance_df.plot.bar(title="{} - {}".format(base_fig_title, performance_name))
+    fig = ax.get_figure()
+    fig.savefig(os.path.join(outputs_dir, "{}.png".format(performance_name)))
