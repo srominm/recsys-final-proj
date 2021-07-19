@@ -188,7 +188,7 @@ def test_model_all(Rec, test_df, train_df):
           % (ndcg[0], ndcg[1], ndcg[2], ndcg[3]))
     return precision, recall, f_score, ndcg
 
-def process_user_items(user_i, train_df, item_set, neg, item_popularity):   
+def process_user_items(user_i, train_df, item_set, neg, item_popularity=None):   
     user = []
     item_pos = []
     item_neg = []
@@ -206,13 +206,13 @@ def process_user_items(user_i, train_df, item_set, neg, item_popularity):
         user += [user_i] * tmp_neg
         item_pos += [l] * tmp_neg
         item_neg += neg_samples
-        if len(item_popularity)>0:
+        if item_popularity is not None:
             item_poplarity_corr_lst += [item_popularity[l]/np.sum(item_popularity)] * tmp_neg
         
     
     return (user, item_pos, item_neg, item_poplarity_corr_lst)
 
-def negative_sample(train_df, num_user, num_item, neg, item_popularity):
+def negative_sample(train_df, num_user, num_item, neg, item_popularity=None):
     user = []
     item_pos = []
     item_neg = []

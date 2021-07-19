@@ -25,8 +25,11 @@ def get_correlation_loss(y_true, y_pred):
 class BPR_DRP_RSP_DEBIAS:
     
     def __init__(self, sess, args, train_df, vali_df, item_genre, genre_error_weight,
-                 key_genre, item_genre_list, user_genre_count):
+                 key_genre, item_genre_list, user_genre_count, outputs_dir):
         self.dataname = args.dataname
+        
+        self.ckpt_save_path = os.path.join(outputs_dir, self.dataname, 'check_points')
+        os.makedirs(self.ckpt_save_path, exist_ok=True)
         
         self.layers = eval(args.layers)
 
@@ -75,11 +78,13 @@ class BPR_DRP_RSP_DEBIAS:
         print(self.args)
         self._prepare_model()
         
-    def loadmodel(self, saver, checkpoint_dir):
-        ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+    def loadmodel(self, saver):
+        print("loading model...")
+        ckpt = tf.train.get_checkpoint_state(self.ckpt_save_path)
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
             saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
+            print("successfully restored model from checkpoint...")
             return True
         else:
             return False
@@ -89,7 +94,7 @@ class BPR_DRP_RSP_DEBIAS:
         self.sess.run(init)
         
         saver = tf.compat.v1.train.Saver([self.P, self.Q])
-        self.loadmodel(saver, "./"+self.dataname+"/BPR_check_points")
+        self.loadmodel(saver)
         
         for epoch_itr in range(1, self.train_epoch + 1 + self.train_epoch_a):
             self.train_model(epoch_itr)
@@ -265,10 +270,7 @@ class BPR_DRP_RSP_DEBIAS:
                    "negative Sampling time : %d ms" % (NS_end_time - NS_start_time),
                    "negative samples : %d" % (num_sample))
 
-        ckpt_save_path = "./"+self.dataname+"/BPR_check_points"
-        if not os.path.exists(ckpt_save_path):
-            os.makedirs(ckpt_save_path)
-        self.saver.save(sess, ckpt_save_path + "/check_point.ckpt", global_step=itr)
+        self.saver.save(sess, self.ckpt_save_path + "/check_point.ckpt", global_step=itr)
 
     def test_model(self, itr):  # calculate the cost and rmse of testing set in each epoch
         if itr % self.display_step == 0:
@@ -297,7 +299,7 @@ class BPR_DRP_RSP_DEBIAS:
         return tf.reduce_sum(input_tensor=tf.square(tensor))
 
 
-parser = argparse.ArgumentParser(description='BPR_DRP_RSP')
+parser = argparse.ArgumentParser(description='BPR-DPR-RSP-DEBIAS')
 parser.add_argument('--train_epoch', type=int, default=20)
 parser.add_argument('--train_epoch_a', type=int, default=20)
 parser.add_argument('--display_step', type=int, default=1)
@@ -358,6 +360,9 @@ print('number of positive feedback: ' + str(len(train_df)))
 print('estimated number of training samples: ' + str(args.neg * len(train_df)))
 print('!' * 100)
 
+outputs_dir = os.path.join('.', 'outputs', 'BPR_DRP_RSP_DEBIAS')
+os.makedirs(outputs_dir, exist_ok=True)
+
 # genreate item_genre matrix
 item_genre = np.zeros((num_item, num_genre))
 for i in range(num_item):
@@ -385,7 +390,7 @@ n = args.n
 for i in range(n):
     with tf.compat.v1.Session() as sess:
         bpr_drp_rsp_debias = BPR_DRP_RSP_DEBIAS(sess, args, train_df, vali_df, item_genre, genre_error_weight, 
-                                  key_genre, item_genre_list, user_genre_count)
+                                  key_genre, item_genre_list, user_genre_count, outputs_dir)
         [prec_one, rec_one, f_one, ndcg_one, Rec] = bpr_drp_rsp_debias.run()
         [RSP_one, REO_one] = utility.ranking_analysis(Rec, vali_df, train_df, key_genre, item_genre_list,
                                                       user_genre_count)
@@ -396,7 +401,7 @@ for i in range(n):
         RSP += RSP_one
         REO += REO_one
 
-with open('Rec_' + dataname + '_BPR_DRP_RSP_DEBIAS.mat', "wb") as f:
+with open(os.path.join(outputs_dir, '{}_Recs.mat'.format(dataname)), "wb") as f:
     np.save(f, Rec)
 
 
@@ -406,6 +411,19 @@ f1 /= n
 ndcg /= n
 RSP /= n
 REO /= n
+
+with open(os.path.join(outputs_dir, '{}_precision.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(precision, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_recall.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(recall, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_f1.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(f1, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_ndcg.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(ndcg, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_RSP.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(RSP, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_REO.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(REO, f, pickle.HIGHEST_PROTOCOL)
 
 with open('Avg_Precision_' + dataname + '_BPR_DRP_RSP_DEBIAS.pkl', "wb") as f:
     pickle.dump(precision, f, pickle.HIGHEST_PROTOCOL)

@@ -13,8 +13,11 @@ from sklearn.metrics import *
 class BPR:
 
     def __init__(self, sess, args, train_df, vali_df
-                 , key_genre, item_genre_list, user_genre_count):
+                 , key_genre, item_genre_list, user_genre_count, outputs_dir):
         self.dataname = args.dataname
+        
+        self.ckpt_save_path = os.path.join(outputs_dir, self.dataname, 'check_points')
+        os.makedirs(self.ckpt_save_path, exist_ok=True)
 
         self.key_genre = key_genre
         self.item_genre_list = item_genre_list
@@ -105,7 +108,7 @@ class BPR:
     def train_model(self, itr):
         NS_start_time = time.time() * 1000.0
         epoch_cost = 0
-        num_sample, user_list, item_pos_list, item_neg_list = utility.negative_sample(self.train_df, self.num_rows,
+        num_sample, user_list, item_pos_list, item_neg_list, _ = utility.negative_sample(self.train_df, self.num_rows,
                                                                                       self.num_cols, self.neg)
         NS_end_time = time.time() * 1000.0
 
@@ -132,10 +135,7 @@ class BPR:
                    "negative Sampling time : %d ms" % (NS_end_time - NS_start_time),
                    "negative samples : %d" % (num_sample))
 
-        ckpt_save_path = "./"+self.dataname+"/BPR_check_points"
-        if not os.path.exists(ckpt_save_path):
-            os.makedirs(ckpt_save_path)
-        self.saver.save(sess, ckpt_save_path + "/check_point.ckpt", global_step=itr)
+        self.saver.save(sess, self.ckpt_save_path + "/check_point.ckpt", global_step=itr)
 
     def test_model(self, itr):  # calculate the cost and rmse of testing set in each epoch
         if itr % self.display_step == 0:
@@ -222,6 +222,9 @@ print('number of positive feedback: ' + str(len(train_df)))
 print('estimated number of training samples: ' + str(args.neg * len(train_df)))
 print('!' * 100)
 
+outputs_dir = os.path.join('.', 'outputs', 'BPR')
+os.makedirs(outputs_dir, exist_ok=True)
+
 # genreate item_genre matrix
 genre_item_indicator = np.zeros((num_genre, num_item))
 
@@ -238,7 +241,7 @@ REO = np.zeros(4)
 n = args.n
 for i in range(n):
     with tf.compat.v1.Session() as sess:
-        bpr = BPR(sess, args, train_df, vali_df, key_genre, item_genre_list, user_genre_count)
+        bpr = BPR(sess, args, train_df, vali_df, key_genre, item_genre_list, user_genre_count, outputs_dir)
         [prec_one, rec_one, f_one, ndcg_one, Rec] = bpr.run()
         [RSP_one, REO_one] = utility.ranking_analysis(Rec, vali_df, train_df, key_genre, item_genre_list,
                                                       user_genre_count)
@@ -249,7 +252,7 @@ for i in range(n):
         RSP += RSP_one
         REO += REO_one
 
-with open('Rec_' + dataname + '_BPR.mat', "wb") as f:
+with open(os.path.join(outputs_dir, '{}_Recs.mat'.format(dataname)), "wb") as f:
     np.save(f, Rec)
 
 
@@ -259,6 +262,19 @@ f1 /= n
 ndcg /= n
 RSP /= n
 REO /= n
+
+with open(os.path.join(outputs_dir, '{}_precision.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(precision, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_recall.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(recall, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_f1.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(f1, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_ndcg.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(ndcg, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_RSP.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(RSP, f, pickle.HIGHEST_PROTOCOL)
+with open(os.path.join(outputs_dir, '{}_REO.pkl'.format(dataname)), "wb") as f:
+    pickle.dump(REO, f, pickle.HIGHEST_PROTOCOL)
 
 print('')
 print('*' * 100)
