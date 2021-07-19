@@ -28,7 +28,7 @@ class BPR_DRP_RSP_DEBIAS:
                  key_genre, item_genre_list, user_genre_count, outputs_dir):
         self.dataname = args.dataname
         
-        self.ckpt_save_path = os.path.join(outputs_dir, self.dataname, 'check_points')
+        self.ckpt_save_path = os.path.join(outputs_dir, 'check_points')
         os.makedirs(self.ckpt_save_path, exist_ok=True)
         
         self.layers = eval(args.layers)
@@ -360,8 +360,11 @@ print('number of positive feedback: ' + str(len(train_df)))
 print('estimated number of training samples: ' + str(args.neg * len(train_df)))
 print('!' * 100)
 
-outputs_dir = os.path.join('.', 'outputs', 'BPR_DRP_RSP_DEBIAS')
+outputs_dir = os.path.join('.', 'outputs', 'BPR_DRP_RSP_DEBIAS', dataname)
 os.makedirs(outputs_dir, exist_ok=True)
+
+outputs_performance_dir = os.path.join(outputs_dir, 'performance')
+os.makedirs(outputs_performance_dir, exist_ok=True)
 
 # genreate item_genre matrix
 item_genre = np.zeros((num_item, num_genre))
@@ -401,7 +404,7 @@ for i in range(n):
         RSP += RSP_one
         REO += REO_one
 
-with open(os.path.join(outputs_dir, '{}_Recs.mat'.format(dataname)), "wb") as f:
+with open(os.path.join(outputs_performance_dir, 'Recs.mat'), "wb") as f:
     np.save(f, Rec)
 
 
@@ -412,31 +415,19 @@ ndcg /= n
 RSP /= n
 REO /= n
 
-with open(os.path.join(outputs_dir, '{}_precision.pkl'.format(dataname)), "wb") as f:
+with open(os.path.join(outputs_performance_dir, 'precision.pkl'), "wb") as f:
     pickle.dump(precision, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_dir, '{}_recall.pkl'.format(dataname)), "wb") as f:
+with open(os.path.join(outputs_performance_dir, 'recall.pkl'), "wb") as f:
     pickle.dump(recall, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_dir, '{}_f1.pkl'.format(dataname)), "wb") as f:
+with open(os.path.join(outputs_performance_dir, 'f1.pkl'), "wb") as f:
     pickle.dump(f1, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_dir, '{}_ndcg.pkl'.format(dataname)), "wb") as f:
+with open(os.path.join(outputs_performance_dir, 'ndcg.pkl'), "wb") as f:
     pickle.dump(ndcg, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_dir, '{}_RSP.pkl'.format(dataname)), "wb") as f:
+with open(os.path.join(outputs_performance_dir, 'RSP.pkl'), "wb") as f:
     pickle.dump(RSP, f, pickle.HIGHEST_PROTOCOL)
-with open(os.path.join(outputs_dir, '{}_REO.pkl'.format(dataname)), "wb") as f:
+with open(os.path.join(outputs_performance_dir, 'REO.pkl'), "wb") as f:
     pickle.dump(REO, f, pickle.HIGHEST_PROTOCOL)
 
-with open('Avg_Precision_' + dataname + '_BPR_DRP_RSP_DEBIAS.pkl', "wb") as f:
-    pickle.dump(precision, f, pickle.HIGHEST_PROTOCOL)
-with open('Avg_Recall_' + dataname + '_BPR_DRP_RSP_DEBIAS.pkl', "wb") as f:
-    pickle.dump(recall, f, pickle.HIGHEST_PROTOCOL)
-with open('Avg_F1_' + dataname + '_BPR_DRP_RSP_DEBIAS.pkl', "wb") as f:
-    pickle.dump(f1, f, pickle.HIGHEST_PROTOCOL)
-with open('Avg_NDCG_' + dataname + '_BPR_DRP_RSP_DEBIAS.pkl', "wb") as f:
-    pickle.dump(ndcg, f, pickle.HIGHEST_PROTOCOL)
-with open('Avg_RSP_' + dataname + '_BPR_DRP_RSP_DEBIAS.pkl', "wb") as f:
-    pickle.dump(RSP, f, pickle.HIGHEST_PROTOCOL)
-with open('Avg_REO_' + dataname + '_BPR_DRP_RSP_DEBIAS.pkl', "wb") as f:
-    pickle.dump(REO, f, pickle.HIGHEST_PROTOCOL)
 
 print('')
 print('*' * 100)
