@@ -409,12 +409,12 @@ ndcg /= n
 RSP /= n
 REO /= n
 
-utility.plot_performance(precision, "Precision", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(recall, "Recall", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(f1, "F1", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(ndcg, "NDCG", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(RSP, "RSP", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
-utility.plot_performance(REO, "REO", outputs_performance_dir, "({}) BPR_DRP_RSP_DEBIAS".format(dataname))
+utility.plot_performance(precision, "Precision", outputs_performance_dir, dataset_name=dataname, algo_name="BPR_DRP_RSP_DEBIAS")
+utility.plot_performance(recall, "Recall", outputs_performance_dir, dataset_name=dataname, algo_name="BPR_DRP_RSP_DEBIAS")
+utility.plot_performance(f1, "F1", outputs_performance_dir, dataset_name=dataname, algo_name="BPR_DRP_RSP_DEBIAS")
+utility.plot_performance(ndcg, "NDCG", outputs_performance_dir, dataset_name=dataname, algo_name="BPR_DRP_RSP_DEBIAS")
+utility.plot_performance(RSP, "RSP", outputs_performance_dir, dataset_name=dataname, algo_name="BPR_DRP_RSP_DEBIAS")
+utility.plot_performance(REO, "REO", outputs_performance_dir, dataset_name=dataname, algo_name="BPR_DRP_RSP_DEBIAS")
 
 print('')
 print('*' * 100)

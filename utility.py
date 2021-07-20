@@ -492,12 +492,17 @@ def relative_std(dictionary):
     rstd = np.std(tmp) / (np.mean(tmp) + 1e-10)
     return rstd
 
-def plot_performance(performance, performance_name, outputs_dir, base_fig_title, col_names=None):
+def plot_performance(performance, performance_name, outputs_dir, dataset_name, algo_name, col_names=None, output_data=True):
+    fig_title = "{} - {} - {}".format(dataset_name, algo_name, performance_name)
+    fig_f_name = "{}_{}_{}".format(dataset_name, algo_name, performance_name)
     if not col_names:
         if len(performance) != 4:
             raise Exception("Please pass col_names argument")
         col_names = ["{}@1".format(performance_name), "{}@5".format(performance_name), "{}@10".format(performance_name), "{}@15".format(performance_name)]
     performance_df = pd.DataFrame(performance, index=col_names).T
-    ax = performance_df.plot.bar(title="{} - {}".format(base_fig_title, performance_name))
+    ax = performance_df.plot.bar(title=fig_title)
     fig = ax.get_figure()
-    fig.savefig(os.path.join(outputs_dir, "{}.png".format(performance_name)))
+    fig.savefig(os.path.join(outputs_dir, "{}.png".format(fig_f_name)))
+    
+    if output_data:
+        performance_df.to_csv(os.path.join(outputs_dir, "{}.csv".format(fig_f_name)))
